@@ -4,9 +4,9 @@
 ## For the detailed usage of lapcap, please see:
         http://www.tcpdump.org/pcap.html
 ## Install lapcap:
-　   　  ./configure
-　  　   make
-　　     make install
+　       　./configure
+　  　     make
+　　       make install
  ## gcc -o sniffer sniffer.c -lpcap -lm
  ## sudo ./sniffer -i wlp3s0 -t tcp -p 23 -x -m
        -i interface
