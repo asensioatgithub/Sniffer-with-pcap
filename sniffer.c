@@ -147,6 +147,7 @@ int main(int argc,char *argv[]){
 	}
 	pcap_setfilter(handle, &fp); 
 	pcap_loop(handle, -1, callback,NULL);  //int pcap_loop(pcap_t *p, int cnt, pcap_handler callback, u_char *user)	
+	pcap_freecode(&fp);
 	pcap_close(handle);
 	return(0);
 }
@@ -309,37 +310,56 @@ void print_X_data(const u_char *packet, u_short total_size){
 	printf("\n");
 	//printf("%d ",total_size);
 	u_short line_count = total_size/16; 
-	u_char * cur = (u_char *)packet;
+	u_char * cur_hex = (u_char *)packet;
+	u_char * cur_char = cur_hex;
 	u_short c = 1;
 	printf("\t ");
+	
 	while(c <= total_size){
+		
 		if(c<=14)           //arp_header
-			printf("\033[1;32m%02x\33[0m", *cur);
+			printf("\033[1;32m%02x\33[0m", *cur_hex);
 		else if(c<=34)            //ip_header
-			printf("\033[1;34m%02x\33[0m", *cur);
+			printf("\033[1;34m%02x\33[0m", *cur_hex);
 		else if((ip_type_num==1||ip_type_num==17) && c<=42)	//icmp_header || udp_header
-			printf("\033[1;35m%02x\33[0m", *cur);
+			printf("\033[1;35m%02x\33[0m", *cur_hex);
 		else if(c<=54)			//tcp_header
-			printf("\033[1;35m%02x\33[0m", *cur);
+			printf("\033[1;35m%02x\33[0m", *cur_hex);
 		else if(c>=67&&c<=total_size)
-			printf("\033[1;31m%02x\33[0m", *cur);
+			printf("\033[1;31m%02x\33[0m", *cur_hex);
 		else
-			printf("%02x", *cur);
+			printf("%02x", *cur_hex);
 		if(c%2 ==0) printf(" ");
-		if(c%16 == 0) printf("\n\t ");
-		c++;cur+=1; 
+		if(c%16 == 0) {
+			printf("   ");
+			for(int i=0;i<16;i++){
+				if (isprint(*cur_char))
+					printf("%c", *cur_char);
+				else
+					printf(".");
+				cur_char++;
+			}
+			printf("\n\t ");
+			
+		}
+		if(c==total_size){
+			printf("   ");
+			int l = 39 - 2*(total_size%16)-(total_size%16)/2+1;
+			for(int i=0;i<l;i++)
+				printf("%c",' ');
+			for(int i=0;i<total_size%16;i++){
+				if (isprint(*cur_char))
+					printf("%c", *cur_char);
+				else
+					printf(".");
+				cur_char++;
+			}
+			printf("\n ");
+		}
+		c++;cur_hex+=1; 
 	}
 	
 	printf("\n");
-	printf("\033[1;31mData:\33[0m");
-	cur = (u_char *)packet+66;
-	c = 67;
-	while(c <= total_size){
-		printf("\033[1;31m%c\33[0m",*cur);
-		cur++;
-		c++;
-	}
-	
 	
 }
 
