@@ -1,0 +1,1 @@
+cmd_/home/maohao/文档/git/netfilter_module/mail_mod.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/maohao/文档/git/netfilter_module/mail_mod.ko /home/maohao/文档/git/netfilter_module/mail_mod.o /home/maohao/文档/git/netfilter_module/mail_mod.mod.o
