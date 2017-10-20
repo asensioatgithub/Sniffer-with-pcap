@@ -1,0 +1,1 @@
+cmd_/home/maohao/文档/git/netfilter_module/mailsteal.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/maohao/文档/git/netfilter_module/mailsteal.ko /home/maohao/文档/git/netfilter_module/mailsteal.o /home/maohao/文档/git/netfilter_module/mailsteal.mod.o
